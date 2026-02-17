@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TSSAA Bowling Personal Scoreboard</title>
+  <meta name="theme-color" content="#111827" />
+  <style>
+    :root{
+      --bg:#0b1020; --card:#111827; --muted:#9ca3af; --text:#e5e7eb; --line:#1f2937;
+      --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --btn:#2563eb; --btn2:#374151;
+      --chip:#0f172a;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      background: linear-gradient(180deg, var(--bg), #050816 70%);
+      color:var(--text);
+    }
+    header{
+      padding:18px 16px 10px; border-bottom:1px solid var(--line);
+      position:sticky; top:0; background:rgba(5,8,22,.9); backdrop-filter: blur(10px);
+      z-index:10;
+    }
+    h1{margin:0; font-size:18px; font-weight:700; letter-spacing:.2px}
+    .sub{margin-top:4px; color:var(--muted); font-size:12px}
+    main{padding:16px; max-width:980px; margin:0 auto}
+    .grid{display:grid; gap:12px}
+    @media(min-width:860px){ .grid{grid-template-columns: 1.1fr .9fr;} }
+
+    .card{
+      background:rgba(17,24,39,.85);
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+    label{font-size:12px; color:var(--muted)}
+    input[type="text"], input[type="number"], input[type="date"]{
+      width:100%;
+      padding:10px 10px;
+      background:#0b1228;
+      color:var(--text);
+      border:1px solid var(--line);
+      border-radius:12px;
+      outline:none;
+    }
+    input[type="number"]{appearance:textfield}
+    .field{flex:1; min-width:180px}
+    .field.small{min-width:130px; flex:0 0 160px}
+    .btnbar{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+    button{
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:10px 12px;
+      background:var(--btn2);
+      color:var(--text);
+      font-weight:600;
+      cursor:pointer;
+    }
+    button.primary{background:var(--btn); border-color:#1d4ed8}
+    button.danger{background:#7f1d1d; border-color:#991b1b}
+    button:disabled{opacity:.6; cursor:not-allowed}
+
+    .scoreBanner{
+      display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+      padding:12px 12px;
+      border-radius:14px;
+      background:linear-gradient(90deg, rgba(37,99,235,.25), rgba(34,197,94,.12));
+      border:1px solid var(--line);
+      margin-top:10px;
+    }
+    .bigScore{font-size:26px; font-weight:800; letter-spacing:.4px}
+    .lead{font-size:12px; color:var(--muted)}
+    .chip{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 10px; border-radius:999px;
+      background:var(--chip);
+      border:1px solid var(--line);
+      font-size:12px; color:var(--text);
+    }
+    .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+    details{border-top:1px solid var(--line); margin-top:12px; padding-top:10px}
+    summary{cursor:pointer; font-weight:700}
+    table{width:100%; border-collapse:separate; border-spacing:0; margin-top:10px; overflow:hidden}
+    th,td{padding:8px 8px; border-bottom:1px solid var(--line); font-size:13px}
+    th{color:var(--muted); font-weight:700; text-align:left}
+    .twoCol{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
+    .posGrid{display:grid; grid-template-columns: 70px 1fr 1fr; gap:8px; align-items:center; margin-top:10px}
+    .posGrid .hdr{color:var(--muted); font-size:12px; font-weight:700}
+    .pos{font-weight:800}
+    .sectionTitle{display:flex; justify-content:space-between; align-items:baseline; gap:10px}
+    .sectionTitle h2{margin:0; font-size:15px}
+    .note{font-size:12px; color:var(--muted)}
+    .historyItem{
+      border:1px solid var(--line); border-radius:14px; padding:10px; background:#0b1228;
+      display:flex; flex-direction:column; gap:6px;
+    }
+    .historyTop{display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap}
+    .historyName{font-weight:800}
+    .mono{font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1;}
+  </style>
+</head>
+<body>
+<header>
+  <h1>TSSAA Bowling Personal Scoreboard</h1>
+  <div class="sub">Pins-only entry • Auto points • Saved locally on this device</div>
+</header>
+
+<main class="grid">
+  <section class="card">
+    <div class="sectionTitle">
+      <h2>Match Setup</h2>
+      <span class="chip mono" id="ruleChip">27-point system</span>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div class="field">
+        <label for="homeName">Home Team</label>
+        <input id="homeName" type="text" placeholder="e.g., East High School" />
+      </div>
+      <div class="field">
+        <label for="visitorName">Visitor Team</label>
+        <input id="visitorName" type="text" placeholder="e.g., West High School" />
+      </div>
+      <div class="field small">
+        <label for="matchDate">Date</label>
+        <input id="matchDate" type="date" />
+      </div>
+    </div>
+
+    <div class="scoreBanner">
+      <div>
+        <div class="bigScore mono" id="scoreLine">0.0 – 0.0</div>
+        <div class="lead" id="leadLine">Enter scores to see who’s winning.</div>
+      </div>
+      <div class="row">
+        <span class="chip mono" id="pinLine">Pins: 0 – 0</span>
+        <span class="chip mono" id="statusChip">No tiebreak</span>
+      </div>
+    </div>
+
+    <details>
+      <summary>Breakdown (American + Baker + Bonuses)</summary>
+      <div id="breakdown"></div>
+    </details>
+
+    <div class="btnbar">
+      <button class="primary" id="saveBtn">Save to History</button>
+      <button id="clearBtn">Clear Current Match</button>
+    </div>
+
+    <p class="note" style="margin-top:10px;">
+      Scoring follows TSSAA Bowling Regulations (27-point system). Half points are used for ties.
+    </p>
+  </section>
+
+  <section class="card">
+    <div class="sectionTitle">
+      <h2>Enter Pins</h2>
+      <span class="note">Use 1A–3B labels for American games • Baker totals per game</span>
+    </div>
+
+    <div id="entry"></div>
+
+    <details>
+      <summary>History (stored only on this device)</summary>
+      <div class="btnbar">
+        <button id="exportBtn">Export History (JSON)</button>
+        <button class="danger" id="wipeBtn">Wipe History</button>
+      </div>
+      <div id="history" style="margin-top:10px;"></div>
+      <p class="note">If you clear browser data, history will be erased.</p>
+    </details>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
