@@ -41,8 +41,8 @@
     .grid{display:grid; gap:12px}
     @media(min-width:860px){ .grid{grid-template-columns: 1.1fr .9fr;} }
 
-    .card{
-      background:rgba(17,24,39,.85);
+  .card{
+  background:var(--card);
       border:1px solid var(--line);
       border-radius:16px;
       padding:14px;
@@ -53,7 +53,7 @@
     input[type="text"], input[type="number"], input[type="date"]{
       width:100%;
       padding:10px 10px;
-      background:#0b1228;
+      background:var(--chip);
       color:var(--text);
       border:1px solid var(--line);
       border-radius:12px;
@@ -107,7 +107,7 @@
     .sectionTitle h2{margin:0; font-size:15px}
     .note{font-size:12px; color:var(--muted)}
     .historyItem{
-      border:1px solid var(--line); border-radius:14px; padding:10px; background:#0b1228;
+      border:1px solid var(--line); border-radius:14px; padding:10px; background:var(--chip);
       display:flex; flex-direction:column; gap:6px;
     }
     .historyTop{display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap}
