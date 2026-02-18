@@ -305,8 +305,8 @@ function renderAmericanSection(title, key){
   grid.className = "posGrid";
   grid.innerHTML = `
     <div class="hdr">Pos</div>
-    <div class="hdr">${escapeHtml(match.homeName)}</div>
-    <div class="hdr">${escapeHtml(match.visitorName)}</div>
+    <div class="hdr">${escapeHtml(displayHomeName())}</div>
+    <div class="hdr">${escapeHtml(displayVisitorName())}</div>
   `;
 
   POS.forEach((p, i) => {
@@ -316,11 +316,13 @@ function renderAmericanSection(title, key){
 
     const homeInp = makeNumberInput(match[key].home[i], (n) => {
       match[key].home[i] = n;
-      saveCurrent(); renderAll();
+      saveCurrent(); 
+      renderSummary();
     });
     const visInp = makeNumberInput(match[key].visitor[i], (n) => {
       match[key].visitor[i] = n;
-      saveCurrent(); renderAll();
+      saveCurrent(); 
+      renderSummary();
     });
 
     grid.appendChild(pos);
@@ -346,14 +348,14 @@ function renderBakerSection(title, key){
 
   const f1 = document.createElement("div");
   f1.className = "field";
-  f1.innerHTML = `<label>${escapeHtml(match.homeName)} Total Pins</label>`;
-  const i1 = makeNumberInput(match[key].homeTotal, (n) => { match[key].homeTotal = n; saveCurrent(); renderAll(); });
+  f1.innerHTML = `<label>${escapeHtml(displayHomeName())} Total Pins</label>`;
+  const i1 = makeNumberInput(match[key].homeTotal, (n) => { match[key].homeTotal = n; saveCurrent(); renderSummary(); });
   f1.appendChild(i1);
 
   const f2 = document.createElement("div");
   f2.className = "field";
-  f2.innerHTML = `<label>${escapeHtml(match.visitorName)} Total Pins</label>`;
-  const i2 = makeNumberInput(match[key].visitorTotal, (n) => { match[key].visitorTotal = n; saveCurrent(); renderAll(); });
+  f2.innerHTML = `<label>${escapeHtml(displayVisitorName())} Total Pins</label>`;
+  const i2 = makeNumberInput(match[key].visitorTotal, (n) => { match[key].visitorTotal = n; saveCurrent(); renderSummary(); });
   f2.appendChild(i2);
 
   row.appendChild(f1); row.appendChild(f2);
@@ -505,12 +507,20 @@ function renderHistory(){
 }
 
 function renderAll(){
-  // setup fields
+  // setup fields (these do NOT rebuild the entry inputs)
   els.matchDate.value = match.date || todayISO();
   els.homeName.value = match.homeName ?? "Home";
   els.visitorName.value = match.visitorName ?? "Visitor";
 
-  renderEntry();
+  // Build the entry UI ONE time to prevent keyboard from closing
+  if (!els.entry.dataset.built) {
+    renderEntry();
+    els.entry.dataset.built = "1";
+  } else {
+    // Only update labels, do not rebuild inputs
+    updateEntryLabelsOnly();
+  }
+
   renderSummary();
   renderHistory();
 }
@@ -536,14 +546,37 @@ els.matchDate.addEventListener("change", () => {
   saveCurrent(); renderAll();
 });
 els.homeName.addEventListener("input", () => {
-  match.homeName = els.homeName.value || "Home";
-  saveCurrent(); renderAll();
+  // Allow temporary empty while typing
+  match.homeName = els.homeName.value;
+  saveCurrent();
+  updateEntryLabelsOnly();
+  renderSummary();
+});
+els.homeName.addEventListener("blur", () => {
+  // On finish, enforce default if left blank
+  if (!els.homeName.value.trim()) {
+    els.homeName.value = "Home";
+    match.homeName = "Home";
+    saveCurrent();
+    updateEntryLabelsOnly();
+    renderSummary();
+  }
 });
 els.visitorName.addEventListener("input", () => {
-  match.visitorName = els.visitorName.value || "Visitor";
-  saveCurrent(); renderAll();
+  match.visitorName = els.visitorName.value;
+  saveCurrent();
+  updateEntryLabelsOnly();
+  renderSummary();
 });
-
+els.visitorName.addEventListener("blur", () => {
+  if (!els.visitorName.value.trim()) {
+    els.visitorName.value = "Visitor";
+    match.visitorName = "Visitor";
+    saveCurrent();
+    updateEntryLabelsOnly();
+    renderSummary();
+  }
+});
 els.saveBtn.addEventListener("click", () => {
   addToHistory(snapshotForHistory());
   renderHistory();
