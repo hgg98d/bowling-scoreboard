@@ -11,6 +11,9 @@
 const POS = ["1A","2A","3A","1B","2B","3B"];
 
 const els = {
+  els.themeToggle = document.getElementById("themeToggle");
+  const THEME_KEY = "tssaa_theme";
+
   homeName: document.getElementById("homeName"),
   visitorName: document.getElementById("visitorName"),
   matchDate: document.getElementById("matchDate"),
@@ -616,7 +619,26 @@ els.wipeBtn.addEventListener("click", () => {
     renderHistory();
   }
 });
+function applyTheme(theme){
+  if (theme === "light"){
+    document.body.classList.add("light");
+    els.themeToggle.textContent = "Dark Mode";
+  } else {
+    document.body.classList.remove("light");
+    els.themeToggle.textContent = "Light Mode";
+  }
+  localStorage.setItem(THEME_KEY, theme);
+}
+
+els.themeToggle.addEventListener("click", () => {
+  const current = localStorage.getItem(THEME_KEY) || "dark";
+  applyTheme(current === "dark" ? "light" : "dark");
+});
 
 // INIT
 if (!match.date) match.date = todayISO();
+
+const savedTheme = localStorage.getItem(THEME_KEY) || "dark";
+applyTheme(savedTheme);
+
 renderAll();
