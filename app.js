@@ -1,19 +1,14 @@
 /* TSSAA Bowling Personal Scoreboard
-   Pins-only entry, computes points per 2025-26 TSSAA Bowling Regulations:
-   - Two American games (8 points each): 6 head-to-head + 2 team pinfall
-   - Two Baker games (3 points each)
-   - 2 points for combined Baker pinfall
-   - 3 points for overall total pinfall
-   - Half points for ties
-   - Match tiebreaks if points tie: (1) total pinfall, (2) points after American G1, (3) pinfall after American G1
+   Pins-only entry, computes points per 2025-26 TSSAA Bowling Regulations.
+   Includes:
+   - Fast entry (no re-render on each digit)
+   - Team name editing that doesn't fight backspace
+   - Light/Dark theme toggle stored locally
 */
 
 const POS = ["1A","2A","3A","1B","2B","3B"];
 
 const els = {
-  els.themeToggle = document.getElementById("themeToggle");
-  const THEME_KEY = "tssaa_theme";
-
   homeName: document.getElementById("homeName"),
   visitorName: document.getElementById("visitorName"),
   matchDate: document.getElementById("matchDate"),
@@ -31,10 +26,13 @@ const els = {
   history: document.getElementById("history"),
   exportBtn: document.getElementById("exportBtn"),
   wipeBtn: document.getElementById("wipeBtn"),
+
+  themeToggle: document.getElementById("themeToggle"),
 };
 
 const STORAGE_KEY = "tssaa_bowling_history_v1";
-const CURRENT_KEY = "tssaa_bowling_current_v1";
+const CURRENT_KEY  = "tssaa_bowling_current_v1";
+const THEME_KEY    = "tssaa_theme_v1";
 
 function todayISO(){
   const d = new Date();
@@ -57,7 +55,6 @@ function clampPins(n){
 
 function getEmptyMatch(){
   return {
-    id: null,
     date: todayISO(),
     homeName: "Home",
     visitorName: "Visitor",
@@ -68,9 +65,6 @@ function getEmptyMatch(){
   };
 }
 
-function saveCurrent(){
-  localStorage.setItem(CURRENT_KEY, JSON.stringify(match));
-}
 function loadCurrent(){
   try{
     const raw = localStorage.getItem(CURRENT_KEY);
@@ -81,10 +75,14 @@ function loadCurrent(){
 
 let match = loadCurrent() ?? getEmptyMatch();
 
+function saveCurrent(){
+  localStorage.setItem(CURRENT_KEY, JSON.stringify(match));
+}
+
 function clearCurrent(){
   match = getEmptyMatch();
   saveCurrent();
-  // Mark entry as NOT built so it rebuilds fresh (important!)
+  // Force rebuilding entry UI after clearing
   delete els.entry.dataset.built;
   renderAll();
 }
@@ -97,16 +95,38 @@ function loadHistory(){
     return Array.isArray(arr) ? arr : [];
   }catch{ return []; }
 }
+
 function saveHistory(arr){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
 }
+
 function addToHistory(snapshot){
   const hist = loadHistory();
   hist.unshift(snapshot);
   saveHistory(hist.slice(0, 200));
 }
 
-// ---------- DISPLAY NAME HELPERS (FIXES TEAM NAME EDITING) ----------
+// -------- Theme --------
+function applyTheme(theme){
+  const t = (theme === "light") ? "light" : "dark";
+  if (t === "light"){
+    document.body.classList.add("light");
+    if (els.themeToggle) els.themeToggle.textContent = "Dark Mode";
+  } else {
+    document.body.classList.remove("light");
+    if (els.themeToggle) els.themeToggle.textContent = "Light Mode";
+  }
+  localStorage.setItem(THEME_KEY, t);
+}
+
+if (els.themeToggle){
+  els.themeToggle.addEventListener("click", () => {
+    const current = localStorage.getItem(THEME_KEY) || "dark";
+    applyTheme(current === "dark" ? "light" : "dark");
+  });
+}
+
+// -------- Display name helpers (fixes team name editing) --------
 function displayHomeName(){
   const s = (match.homeName ?? "").trim();
   return s ? s : "Home";
@@ -116,12 +136,11 @@ function displayVisitorName(){
   return s ? s : "Visitor";
 }
 
-// Update labels without rebuilding inputs (prevents keyboard from closing)
+// Update labels without rebuilding inputs (prevents keyboard closing)
 function updateEntryLabelsOnly(){
-  // If entry hasn't been built yet, do nothing
   if (!els.entry.dataset.built) return;
 
-  // Update each American grid header inside entry
+  // Update American grid headers
   const grids = els.entry.querySelectorAll(".posGrid");
   grids.forEach(grid => {
     const hdrs = grid.querySelectorAll(".hdr");
@@ -131,7 +150,7 @@ function updateEntryLabelsOnly(){
     }
   });
 
-  // Update Baker labels inside entry
+  // Update Baker labels
   const bakerCards = Array.from(els.entry.querySelectorAll(".card"))
     .filter(c => c.textContent.includes("Baker Game"));
   bakerCards.forEach(card => {
@@ -143,7 +162,7 @@ function updateEntryLabelsOnly(){
   });
 }
 
-// ---------- SCORING ----------
+// -------- Scoring --------
 function pointsWinTie(homePins, visitorPins, winPts, tiePtsEach){
   if (homePins === null || visitorPins === null) return {home:0, visitor:0, decided:false};
   if (homePins > visitorPins) return {home:winPts, visitor:0, decided:true};
@@ -195,17 +214,17 @@ function computeBaker(b1, b2){
   const b1Pts = pointsWinTie(b1.homeTotal, b1.visitorTotal, 3.0, 1.5);
   const b2Pts = pointsWinTie(b2.homeTotal, b2.visitorTotal, 3.0, 1.5);
 
-  const b1HomePins = b1.homeTotal ?? 0;
-  const b1VisPins  = b1.visitorTotal ?? 0;
-  const b2HomePins = b2.homeTotal ?? 0;
-  const b2VisPins  = b2.visitorTotal ?? 0;
+  const b1Home = b1.homeTotal ?? 0;
+  const b1Vis  = b1.visitorTotal ?? 0;
+  const b2Home = b2.homeTotal ?? 0;
+  const b2Vis  = b2.visitorTotal ?? 0;
 
-  const bakerPinsHome = b1HomePins + b2HomePins;
-  const bakerPinsVis  = b1VisPins + b2VisPins;
+  const combinedHome = b1Home + b2Home;
+  const combinedVis  = b1Vis + b2Vis;
 
-  const bakerBonus = pointsWinTie(
-    (b1.homeTotal !== null && b2.homeTotal !== null) ? bakerPinsHome : null,
-    (b1.visitorTotal !== null && b2.visitorTotal !== null) ? bakerPinsVis : null,
+  const bonus = pointsWinTie(
+    (b1.homeTotal !== null && b2.homeTotal !== null) ? combinedHome : null,
+    (b1.visitorTotal !== null && b2.visitorTotal !== null) ? combinedVis : null,
     2.0,
     1.0
   );
@@ -216,29 +235,28 @@ function computeBaker(b1, b2){
       {name:"Baker Game 2", pins:{home:b2.homeTotal, visitor:b2.visitorTotal}, pts:b2Pts},
     ],
     combinedPins: {
-      home: bakerPinsHome,
-      visitor: bakerPinsVis,
+      home: combinedHome,
+      visitor: combinedVis,
       complete: (b1.homeTotal!==null && b1.visitorTotal!==null && b2.homeTotal!==null && b2.visitorTotal!==null)
     },
-    bonusPts: bakerBonus
+    bonusPts: bonus
   };
 }
 
 function computeOverall(amer1, amer2, baker){
-  const totalPinsHome = amer1.pinfall.home + amer2.pinfall.home + baker.combinedPins.home;
-  const totalPinsVis  = amer1.pinfall.visitor + amer2.pinfall.visitor + baker.combinedPins.visitor;
+  const totalHome = amer1.pinfall.home + amer2.pinfall.home + baker.combinedPins.home;
+  const totalVis  = amer1.pinfall.visitor + amer2.pinfall.visitor + baker.combinedPins.visitor;
 
-  const completeOverall =
-    amer1.pinfall.complete && amer2.pinfall.complete && baker.combinedPins.complete;
+  const completeOverall = amer1.pinfall.complete && amer2.pinfall.complete && baker.combinedPins.complete;
 
-  const overallBonus = pointsWinTie(
-    completeOverall ? totalPinsHome : null,
-    completeOverall ? totalPinsVis  : null,
+  const bonus = pointsWinTie(
+    completeOverall ? totalHome : null,
+    completeOverall ? totalVis  : null,
     3.0,
     1.5
   );
 
-  return { totalPins:{home:totalPinsHome, visitor:totalPinsVis, complete: completeOverall}, bonusPts: overallBonus };
+  return { totalPins:{home:totalHome, visitor:totalVis, complete: completeOverall}, bonusPts: bonus };
 }
 
 function determineWinner({points, totalPins, amer1Pts, amer1Pins}){
@@ -289,10 +307,8 @@ function computeAll(){
   return { amer1, amer2, baker, overall, totals: {points:{home:pointsHome, visitor:pointsVis}}, status };
 }
 
-// ---------- UI RENDER ----------
-function fmt1(n){
-  return (Math.round(n*10)/10).toFixed(1);
-}
+// -------- UI --------
+function fmt1(n){ return (Math.round(n*10)/10).toFixed(1); }
 
 function escapeHtml(s){
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -340,12 +356,13 @@ function renderAmericanSection(title, key){
     const homeInp = makeNumberInput(match[key].home[i], (n) => {
       match[key].home[i] = n;
       saveCurrent();
-      renderSummary(); // IMPORTANT: do not rebuild entry
+      renderSummary(); // IMPORTANT: do not rebuild entry UI
     });
+
     const visInp = makeNumberInput(match[key].visitor[i], (n) => {
       match[key].visitor[i] = n;
       saveCurrent();
-      renderSummary(); // IMPORTANT: do not rebuild entry
+      renderSummary(); // IMPORTANT: do not rebuild entry UI
     });
 
     grid.appendChild(pos);
@@ -376,7 +393,7 @@ function renderBakerSection(title, key){
   const i1 = makeNumberInput(match[key].homeTotal, (n) => {
     match[key].homeTotal = n;
     saveCurrent();
-    renderSummary(); // IMPORTANT: do not rebuild entry
+    renderSummary();
   });
   f1.appendChild(i1);
 
@@ -386,11 +403,12 @@ function renderBakerSection(title, key){
   const i2 = makeNumberInput(match[key].visitorTotal, (n) => {
     match[key].visitorTotal = n;
     saveCurrent();
-    renderSummary(); // IMPORTANT: do not rebuild entry
+    renderSummary();
   });
   f2.appendChild(i2);
 
-  row.appendChild(f1); row.appendChild(f2);
+  row.appendChild(f1);
+  row.appendChild(f2);
   card.appendChild(row);
   return card;
 }
@@ -407,8 +425,7 @@ function renderEntry(){
 }
 
 function renderBreakdownHTML(c){
-  const rows = [];
-  rows.push(`<table>
+  return `<table>
     <thead><tr><th>Section</th><th>${escapeHtml(displayHomeName())}</th><th>${escapeHtml(displayVisitorName())}</th></tr></thead>
     <tbody>
       <tr><td><b>American Game 1 (max 8)</b></td><td class="mono">${fmt1(c.amer1.points.total.home)}</td><td class="mono">${fmt1(c.amer1.points.total.visitor)}</td></tr>
@@ -420,21 +437,15 @@ function renderBreakdownHTML(c){
       <tr><td class="note">• Team Pinfall (2)</td><td class="mono">${fmt1(c.amer2.points.teamPinfall.home)}</td><td class="mono">${fmt1(c.amer2.points.teamPinfall.visitor)}</td></tr>
 
       <tr><td><b>Baker Game 1 (max 3)</b></td><td class="mono">${fmt1(c.baker.games[0].pts.home)}</td><td class="mono">${fmt1(c.baker.games[0].pts.visitor)}</td></tr>
-      <tr><td class="note">• Pins</td><td class="mono">${c.baker.games[0].pins.home ?? "—"}</td><td class="mono">${c.baker.games[0].pins.visitor ?? "—"}</td></tr>
-
       <tr><td><b>Baker Game 2 (max 3)</b></td><td class="mono">${fmt1(c.baker.games[1].pts.home)}</td><td class="mono">${fmt1(c.baker.games[1].pts.visitor)}</td></tr>
-      <tr><td class="note">• Pins</td><td class="mono">${c.baker.games[1].pins.home ?? "—"}</td><td class="mono">${c.baker.games[1].pins.visitor ?? "—"}</td></tr>
 
       <tr><td><b>Baker Combined Bonus (max 2)</b></td><td class="mono">${fmt1(c.baker.bonusPts.home)}</td><td class="mono">${fmt1(c.baker.bonusPts.visitor)}</td></tr>
-
       <tr><td><b>Overall Total Pinfall Bonus (max 3)</b></td><td class="mono">${fmt1(c.overall.bonusPts.home)}</td><td class="mono">${fmt1(c.overall.bonusPts.visitor)}</td></tr>
 
       <tr><td><b>TOTAL POINTS (max 27)</b></td><td class="mono"><b>${fmt1(c.totals.points.home)}</b></td><td class="mono"><b>${fmt1(c.totals.points.visitor)}</b></td></tr>
       <tr><td class="note">TOTAL PINS</td><td class="mono">${c.overall.totalPins.home}</td><td class="mono">${c.overall.totalPins.visitor}</td></tr>
     </tbody>
-  </table>`);
-
-  return rows.join("\n");
+  </table>`;
 }
 
 function renderSummary(){
@@ -492,7 +503,7 @@ function renderHistory(){
     loadBtn.addEventListener("click", () => {
       match = m.raw;
       saveCurrent();
-      delete els.entry.dataset.built; // force rebuild for loaded match
+      delete els.entry.dataset.built;
       renderAll();
     });
 
@@ -526,19 +537,15 @@ function snapshotForHistory(){
     visitorName: displayVisitorName(),
     points: {home: c.totals.points.home, visitor: c.totals.points.visitor},
     pins: {home: c.overall.totalPins.home, visitor: c.overall.totalPins.visitor},
-    leader: c.status.leader,
-    method: c.status.method,
     raw: structuredClone(match)
   };
 }
 
 function renderAll(){
-  // Setup fields without forcing "Home" while typing
   els.matchDate.value = match.date || todayISO();
   els.homeName.value = match.homeName ?? "Home";
   els.visitorName.value = match.visitorName ?? "Visitor";
 
-  // Build entry ONCE so keyboard stays open while typing
   if (!els.entry.dataset.built){
     renderEntry();
     els.entry.dataset.built = "1";
@@ -550,7 +557,7 @@ function renderAll(){
   renderHistory();
 }
 
-// ---------- EVENTS ----------
+// -------- Events --------
 els.matchDate.addEventListener("change", () => {
   match.date = els.matchDate.value || todayISO();
   saveCurrent();
@@ -558,7 +565,7 @@ els.matchDate.addEventListener("change", () => {
 });
 
 els.homeName.addEventListener("input", () => {
-  match.homeName = els.homeName.value; // allow blank while editing
+  match.homeName = els.homeName.value; // allow empty while editing
   saveCurrent();
   updateEntryLabelsOnly();
   renderSummary();
@@ -619,26 +626,8 @@ els.wipeBtn.addEventListener("click", () => {
     renderHistory();
   }
 });
-function applyTheme(theme){
-  if (theme === "light"){
-    document.body.classList.add("light");
-    els.themeToggle.textContent = "Dark Mode";
-  } else {
-    document.body.classList.remove("light");
-    els.themeToggle.textContent = "Light Mode";
-  }
-  localStorage.setItem(THEME_KEY, theme);
-}
 
-els.themeToggle.addEventListener("click", () => {
-  const current = localStorage.getItem(THEME_KEY) || "dark";
-  applyTheme(current === "dark" ? "light" : "dark");
-});
-
-// INIT
+// -------- Init --------
 if (!match.date) match.date = todayISO();
-
-const savedTheme = localStorage.getItem(THEME_KEY) || "dark";
-applyTheme(savedTheme);
-
+applyTheme(localStorage.getItem(THEME_KEY) || "dark");
 renderAll();
