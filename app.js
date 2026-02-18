@@ -49,8 +49,6 @@ function numOrNull(v){
 
 function clampPins(n){
   if (n === null) return null;
-  // reasonable guard; 10-pin scratch. Team totals can exceed 300 (Baker), but individual games usually <=300.
-  // We'll allow 0..400 to avoid blocking edge cases.
   return Math.max(0, Math.min(400, Math.round(n)));
 }
 
@@ -67,8 +65,6 @@ function getEmptyMatch(){
   };
 }
 
-let match = loadCurrent() ?? getEmptyMatch();
-
 function saveCurrent(){
   localStorage.setItem(CURRENT_KEY, JSON.stringify(match));
 }
@@ -79,9 +75,14 @@ function loadCurrent(){
     return JSON.parse(raw);
   }catch{ return null; }
 }
+
+let match = loadCurrent() ?? getEmptyMatch();
+
 function clearCurrent(){
   match = getEmptyMatch();
   saveCurrent();
+  // Mark entry as NOT built so it rebuilds fresh (important!)
+  delete els.entry.dataset.built;
   renderAll();
 }
 
@@ -99,9 +100,47 @@ function saveHistory(arr){
 function addToHistory(snapshot){
   const hist = loadHistory();
   hist.unshift(snapshot);
-  saveHistory(hist.slice(0, 200)); // keep last 200
+  saveHistory(hist.slice(0, 200));
 }
 
+// ---------- DISPLAY NAME HELPERS (FIXES TEAM NAME EDITING) ----------
+function displayHomeName(){
+  const s = (match.homeName ?? "").trim();
+  return s ? s : "Home";
+}
+function displayVisitorName(){
+  const s = (match.visitorName ?? "").trim();
+  return s ? s : "Visitor";
+}
+
+// Update labels without rebuilding inputs (prevents keyboard from closing)
+function updateEntryLabelsOnly(){
+  // If entry hasn't been built yet, do nothing
+  if (!els.entry.dataset.built) return;
+
+  // Update each American grid header inside entry
+  const grids = els.entry.querySelectorAll(".posGrid");
+  grids.forEach(grid => {
+    const hdrs = grid.querySelectorAll(".hdr");
+    if (hdrs.length >= 3){
+      hdrs[1].textContent = displayHomeName();
+      hdrs[2].textContent = displayVisitorName();
+    }
+  });
+
+  // Update Baker labels inside entry
+  const bakerCards = Array.from(els.entry.querySelectorAll(".card"))
+    .filter(c => c.textContent.includes("Baker Game"));
+  bakerCards.forEach(card => {
+    const labels = card.querySelectorAll("label");
+    if (labels.length >= 2){
+      labels[0].textContent = `${displayHomeName()} Total Pins`;
+      labels[1].textContent = `${displayVisitorName()} Total Pins`;
+    }
+  });
+}
+
+// ---------- SCORING ----------
 function pointsWinTie(homePins, visitorPins, winPts, tiePtsEach){
   if (homePins === null || visitorPins === null) return {home:0, visitor:0, decided:false};
   if (homePins > visitorPins) return {home:winPts, visitor:0, decided:true};
@@ -109,15 +148,12 @@ function pointsWinTie(homePins, visitorPins, winPts, tiePtsEach){
   return {home:tiePtsEach, visitor:tiePtsEach, decided:true};
 }
 
-/** Compute American game points (8 max) and pinfall */
 function computeAmerican(game){
   const homeArr = game.home;
   const visArr  = game.visitor;
 
   let homePins = 0, visPins = 0;
-  let haveAny = false;
 
-  // individual head-to-head (6 points)
   let indHomePts = 0, indVisPts = 0;
   const posLines = [];
 
@@ -128,13 +164,12 @@ function computeAmerican(game){
     indHomePts += p.home;
     indVisPts  += p.visitor;
 
-    if (hp !== null) { homePins += hp; haveAny = true; }
-    if (vp !== null) { visPins  += vp; haveAny = true; }
+    if (hp !== null) homePins += hp;
+    if (vp !== null) visPins  += vp;
 
-    posLines.push({pos: POS[i], homePins: hp, visitorPins: vp, homePts: p.home, visitorPts: p.visitor, decided: p.decided});
+    posLines.push({pos: POS[i], homePins: hp, visitorPins: vp, homePts: p.home, visitorPts: p.visitor});
   }
 
-  // team total pinfall points (2 points)
   const teamP = pointsWinTie(
     homeArr.every(x=>x!==null) ? homePins : null,
     visArr.every(x=>x!==null) ? visPins  : null,
@@ -142,18 +177,14 @@ function computeAmerican(game){
     1.0
   );
 
-  const totalHomePts = indHomePts + teamP.home;
-  const totalVisPts  = indVisPts  + teamP.visitor;
-
   return {
     posLines,
     pinfall: {home: homePins, visitor: visPins, complete: homeArr.every(x=>x!==null) && visArr.every(x=>x!==null)},
     points: {
       individual: {home: indHomePts, visitor: indVisPts},
-      teamPinfall: {home: teamP.home, visitor: teamP.visitor, decided: teamP.decided},
-      total: {home: totalHomePts, visitor: totalVisPts}
-    },
-    haveAny
+      teamPinfall: {home: teamP.home, visitor: teamP.visitor},
+      total: {home: indHomePts + teamP.home, visitor: indVisPts + teamP.visitor}
+    }
   };
 }
 
@@ -169,7 +200,6 @@ function computeBaker(b1, b2){
   const bakerPinsHome = b1HomePins + b2HomePins;
   const bakerPinsVis  = b1VisPins + b2VisPins;
 
-  // 2 points for total pinfall of the two baker games (only if both totals entered)
   const bakerBonus = pointsWinTie(
     (b1.homeTotal !== null && b2.homeTotal !== null) ? bakerPinsHome : null,
     (b1.visitorTotal !== null && b2.visitorTotal !== null) ? bakerPinsVis : null,
@@ -182,16 +212,19 @@ function computeBaker(b1, b2){
       {name:"Baker Game 1", pins:{home:b1.homeTotal, visitor:b1.visitorTotal}, pts:b1Pts},
       {name:"Baker Game 2", pins:{home:b2.homeTotal, visitor:b2.visitorTotal}, pts:b2Pts},
     ],
-    combinedPins: {home: bakerPinsHome, visitor: bakerPinsVis, complete: (b1.homeTotal!==null && b1.visitorTotal!==null && b2.homeTotal!==null && b2.visitorTotal!==null)},
+    combinedPins: {
+      home: bakerPinsHome,
+      visitor: bakerPinsVis,
+      complete: (b1.homeTotal!==null && b1.visitorTotal!==null && b2.homeTotal!==null && b2.visitorTotal!==null)
+    },
     bonusPts: bakerBonus
   };
 }
 
 function computeOverall(amer1, amer2, baker){
-  const totalPinsHome = amer1.pinfall.home + amer2.pinfall.home + (baker.combinedPins.home);
-  const totalPinsVis  = amer1.pinfall.visitor + amer2.pinfall.visitor + (baker.combinedPins.visitor);
+  const totalPinsHome = amer1.pinfall.home + amer2.pinfall.home + baker.combinedPins.home;
+  const totalPinsVis  = amer1.pinfall.visitor + amer2.pinfall.visitor + baker.combinedPins.visitor;
 
-  // 3 points for overall total pinfall (only if both American games complete and both baker totals complete)
   const completeOverall =
     amer1.pinfall.complete && amer2.pinfall.complete && baker.combinedPins.complete;
 
@@ -203,6 +236,28 @@ function computeOverall(amer1, amer2, baker){
   );
 
   return { totalPins:{home:totalPinsHome, visitor:totalPinsVis, complete: completeOverall}, bonusPts: overallBonus };
+}
+
+function determineWinner({points, totalPins, amer1Pts, amer1Pins}){
+  if (points.home > points.visitor) return {leader:"home", method:"Points"};
+  if (points.home < points.visitor) return {leader:"visitor", method:"Points"};
+
+  if (totalPins.complete){
+    if (totalPins.home > totalPins.visitor) return {leader:"home", method:"Tiebreak: Total Pinfall"};
+    if (totalPins.home < totalPins.visitor) return {leader:"visitor", method:"Tiebreak: Total Pinfall"};
+  } else {
+    return {leader:"tie", method:"Points tied (need more pins entered)"};
+  }
+
+  if (amer1Pins.complete){
+    if (amer1Pts.home > amer1Pts.visitor) return {leader:"home", method:"Tiebreak: After American Game 1 (Points)"};
+    if (amer1Pts.home < amer1Pts.visitor) return {leader:"visitor", method:"Tiebreak: After American Game 1 (Points)"};
+
+    if (amer1Pins.home > amer1Pins.visitor) return {leader:"home", method:"Tiebreak: After American Game 1 (Pinfall)"};
+    if (amer1Pins.home < amer1Pins.visitor) return {leader:"visitor", method:"Tiebreak: After American Game 1 (Pinfall)"};
+  }
+
+  return {leader:"tie", method:"Still tied"};
 }
 
 function computeAll(){
@@ -221,7 +276,6 @@ function computeAll(){
     baker.games[0].pts.visitor + baker.games[1].pts.visitor +
     baker.bonusPts.visitor + overall.bonusPts.visitor;
 
-  // Match winner status (including tiebreak explanation)
   const status = determineWinner({
     points: {home: pointsHome, visitor: pointsVis},
     totalPins: overall.totalPins,
@@ -232,50 +286,15 @@ function computeAll(){
   return { amer1, amer2, baker, overall, totals: {points:{home:pointsHome, visitor:pointsVis}}, status };
 }
 
-function determineWinner({points, totalPins, amer1Pts, amer1Pins}){
-  // Primary: points
-  if (points.home > points.visitor) return {leader:"home", method:"Points"};
-  if (points.home < points.visitor) return {leader:"visitor", method:"Points"};
-
-  // Tie on points => apply match tiebreakers (TSSAA)
-  // 1) Highest total pinfall
-  if (totalPins.complete){
-    if (totalPins.home > totalPins.visitor) return {leader:"home", method:"Tiebreak: Total Pinfall"};
-    if (totalPins.home < totalPins.visitor) return {leader:"visitor", method:"Tiebreak: Total Pinfall"};
-  } else {
-    return {leader:"tie", method:"Points tied (need more pins entered)"};
-  }
-
-  // 2) Highest point total after American Game 1
-  if (amer1Pins.complete){
-    if (amer1Pts.home > amer1Pts.visitor) return {leader:"home", method:"Tiebreak: After American Game 1 (Points)"};
-    if (amer1Pts.home < amer1Pts.visitor) return {leader:"visitor", method:"Tiebreak: After American Game 1 (Points)"};
-
-    // 3) Highest pinfall after American Game 1
-    if (amer1Pins.home > amer1Pins.visitor) return {leader:"home", method:"Tiebreak: After American Game 1 (Pinfall)"};
-    if (amer1Pins.home < amer1Pins.visitor) return {leader:"visitor", method:"Tiebreak: After American Game 1 (Pinfall)"};
-  }
-
-  return {leader:"tie", method:"Still tied"};
-}
-
+// ---------- UI RENDER ----------
 function fmt1(n){
   return (Math.round(n*10)/10).toFixed(1);
 }
 
-function renderEntry(){
-  const wrap = document.createElement("div");
-
-  // American sections
-  wrap.appendChild(renderAmericanSection("American 10-Pin Game 1", "american1"));
-  wrap.appendChild(renderAmericanSection("American 10-Pin Game 2", "american2"));
-
-  // Baker totals
-  wrap.appendChild(renderBakerSection("Baker Game 1 Totals", "baker1"));
-  wrap.appendChild(renderBakerSection("Baker Game 2 Totals", "baker2"));
-
-  els.entry.innerHTML = "";
-  els.entry.appendChild(wrap);
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+  }[c]));
 }
 
 function makeNumberInput(value, onChange){
@@ -296,9 +315,10 @@ function makeNumberInput(value, onChange){
 function renderAmericanSection(title, key){
   const card = document.createElement("div");
   card.className = "card";
+
   const h = document.createElement("div");
   h.className = "sectionTitle";
-  h.innerHTML = `<h2>${title}</h2><span class="note">Enter pins (0–300 typical)</span>`;
+  h.innerHTML = `<h2>${title}</h2><span class="note">Enter pins</span>`;
   card.appendChild(h);
 
   const grid = document.createElement("div");
@@ -316,13 +336,13 @@ function renderAmericanSection(title, key){
 
     const homeInp = makeNumberInput(match[key].home[i], (n) => {
       match[key].home[i] = n;
-      saveCurrent(); 
-      renderSummary();
+      saveCurrent();
+      renderSummary(); // IMPORTANT: do not rebuild entry
     });
     const visInp = makeNumberInput(match[key].visitor[i], (n) => {
       match[key].visitor[i] = n;
-      saveCurrent(); 
-      renderSummary();
+      saveCurrent();
+      renderSummary(); // IMPORTANT: do not rebuild entry
     });
 
     grid.appendChild(pos);
@@ -337,6 +357,7 @@ function renderAmericanSection(title, key){
 function renderBakerSection(title, key){
   const card = document.createElement("div");
   card.className = "card";
+
   const h = document.createElement("div");
   h.className = "sectionTitle";
   h.innerHTML = `<h2>${title}</h2><span class="note">Enter team total at end of game</span>`;
@@ -349,13 +370,21 @@ function renderBakerSection(title, key){
   const f1 = document.createElement("div");
   f1.className = "field";
   f1.innerHTML = `<label>${escapeHtml(displayHomeName())} Total Pins</label>`;
-  const i1 = makeNumberInput(match[key].homeTotal, (n) => { match[key].homeTotal = n; saveCurrent(); renderSummary(); });
+  const i1 = makeNumberInput(match[key].homeTotal, (n) => {
+    match[key].homeTotal = n;
+    saveCurrent();
+    renderSummary(); // IMPORTANT: do not rebuild entry
+  });
   f1.appendChild(i1);
 
   const f2 = document.createElement("div");
   f2.className = "field";
   f2.innerHTML = `<label>${escapeHtml(displayVisitorName())} Total Pins</label>`;
-  const i2 = makeNumberInput(match[key].visitorTotal, (n) => { match[key].visitorTotal = n; saveCurrent(); renderSummary(); });
+  const i2 = makeNumberInput(match[key].visitorTotal, (n) => {
+    match[key].visitorTotal = n;
+    saveCurrent();
+    renderSummary(); // IMPORTANT: do not rebuild entry
+  });
   f2.appendChild(i2);
 
   row.appendChild(f1); row.appendChild(f2);
@@ -363,47 +392,21 @@ function renderBakerSection(title, key){
   return card;
 }
 
-function escapeHtml(s){
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
-  }[c]));
-}
+function renderEntry(){
+  const wrap = document.createElement("div");
+  wrap.appendChild(renderAmericanSection("American 10-Pin Game 1", "american1"));
+  wrap.appendChild(renderAmericanSection("American 10-Pin Game 2", "american2"));
+  wrap.appendChild(renderBakerSection("Baker Game 1 Totals", "baker1"));
+  wrap.appendChild(renderBakerSection("Baker Game 2 Totals", "baker2"));
 
-function renderSummary(){
-  const c = computeAll();
-  const homePts = c.totals.points.home;
-  const visPts  = c.totals.points.visitor;
-
-  els.scoreLine.textContent = `${fmt1(homePts)} – ${fmt1(visPts)}`;
-
-  const homePins = c.overall.totalPins.home;
-  const visPins  = c.overall.totalPins.visitor;
-  els.pinLine.textContent = `Pins: ${homePins} – ${visPins}`;
-
-  let leadText = "";
-  if (c.status.leader === "home") {
-    leadText = `${match.homeName} leads (${c.status.method}).`;
-    els.statusChip.textContent = c.status.method;
-    els.statusChip.className = "chip mono good";
-  } else if (c.status.leader === "visitor") {
-    leadText = `${match.visitorName} leads (${c.status.method}).`;
-    els.statusChip.textContent = c.status.method;
-    els.statusChip.className = "chip mono good";
-  } else {
-    leadText = `Tied (${c.status.method}).`;
-    els.statusChip.textContent = c.status.method;
-    els.statusChip.className = "chip mono warn";
-  }
-  els.leadLine.textContent = leadText;
-
-  // Breakdown HTML
-  els.breakdown.innerHTML = renderBreakdownHTML(c);
+  els.entry.innerHTML = "";
+  els.entry.appendChild(wrap);
 }
 
 function renderBreakdownHTML(c){
   const rows = [];
   rows.push(`<table>
-    <thead><tr><th>Section</th><th>${escapeHtml(match.homeName)}</th><th>${escapeHtml(match.visitorName)}</th></tr></thead>
+    <thead><tr><th>Section</th><th>${escapeHtml(displayHomeName())}</th><th>${escapeHtml(displayVisitorName())}</th></tr></thead>
     <tbody>
       <tr><td><b>American Game 1 (max 8)</b></td><td class="mono">${fmt1(c.amer1.points.total.home)}</td><td class="mono">${fmt1(c.amer1.points.total.visitor)}</td></tr>
       <tr><td class="note">• Individual (6)</td><td class="mono">${fmt1(c.amer1.points.individual.home)}</td><td class="mono">${fmt1(c.amer1.points.individual.visitor)}</td></tr>
@@ -420,7 +423,6 @@ function renderBreakdownHTML(c){
       <tr><td class="note">• Pins</td><td class="mono">${c.baker.games[1].pins.home ?? "—"}</td><td class="mono">${c.baker.games[1].pins.visitor ?? "—"}</td></tr>
 
       <tr><td><b>Baker Combined Bonus (max 2)</b></td><td class="mono">${fmt1(c.baker.bonusPts.home)}</td><td class="mono">${fmt1(c.baker.bonusPts.visitor)}</td></tr>
-      <tr><td class="note">• Combined Baker Pins</td><td class="mono">${c.baker.combinedPins.home}</td><td class="mono">${c.baker.combinedPins.visitor}</td></tr>
 
       <tr><td><b>Overall Total Pinfall Bonus (max 3)</b></td><td class="mono">${fmt1(c.overall.bonusPts.home)}</td><td class="mono">${fmt1(c.overall.bonusPts.visitor)}</td></tr>
 
@@ -429,25 +431,30 @@ function renderBreakdownHTML(c){
     </tbody>
   </table>`);
 
-  // Add the 1A–3B head-to-head table for Game 1 (nice “neat” detail)
-  rows.push(`<div style="margin-top:10px;"><b>American Game 1 Head-to-Head</b>
-    <table>
-      <thead><tr><th>Pos</th><th>${escapeHtml(match.homeName)} Pins</th><th>Pts</th><th>${escapeHtml(match.visitorName)} Pins</th><th>Pts</th></tr></thead>
-      <tbody>
-        ${c.amer1.posLines.map(l => `
-          <tr>
-            <td class="mono"><b>${l.pos}</b></td>
-            <td class="mono">${l.homePins ?? "—"}</td>
-            <td class="mono">${fmt1(l.homePts)}</td>
-            <td class="mono">${l.visitorPins ?? "—"}</td>
-            <td class="mono">${fmt1(l.visitorPts)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  </div>`);
-
   return rows.join("\n");
+}
+
+function renderSummary(){
+  const c = computeAll();
+
+  els.scoreLine.textContent = `${fmt1(c.totals.points.home)} – ${fmt1(c.totals.points.visitor)}`;
+  els.pinLine.textContent = `Pins: ${c.overall.totalPins.home} – ${c.overall.totalPins.visitor}`;
+
+  if (c.status.leader === "home"){
+    els.leadLine.textContent = `${displayHomeName()} leads (${c.status.method}).`;
+    els.statusChip.textContent = c.status.method;
+    els.statusChip.className = "chip mono good";
+  } else if (c.status.leader === "visitor"){
+    els.leadLine.textContent = `${displayVisitorName()} leads (${c.status.method}).`;
+    els.statusChip.textContent = c.status.method;
+    els.statusChip.className = "chip mono good";
+  } else {
+    els.leadLine.textContent = `Tied (${c.status.method}).`;
+    els.statusChip.textContent = c.status.method;
+    els.statusChip.className = "chip mono warn";
+  }
+
+  els.breakdown.innerHTML = renderBreakdownHTML(c);
 }
 
 function renderHistory(){
@@ -480,8 +487,9 @@ function renderHistory(){
     const loadBtn = document.createElement("button");
     loadBtn.textContent = "Load";
     loadBtn.addEventListener("click", () => {
-      match = m.raw; // restore raw match object
+      match = m.raw;
       saveCurrent();
+      delete els.entry.dataset.built; // force rebuild for loaded match
       renderAll();
     });
 
@@ -506,32 +514,13 @@ function renderHistory(){
   });
 }
 
-function renderAll(){
-  // setup fields (these do NOT rebuild the entry inputs)
-  els.matchDate.value = match.date || todayISO();
-  els.homeName.value = match.homeName ?? "Home";
-  els.visitorName.value = match.visitorName ?? "Visitor";
-
-  // Build the entry UI ONE time to prevent keyboard from closing
-  if (!els.entry.dataset.built) {
-    renderEntry();
-    els.entry.dataset.built = "1";
-  } else {
-    // Only update labels, do not rebuild inputs
-    updateEntryLabelsOnly();
-  }
-
-  renderSummary();
-  renderHistory();
-}
-
 function snapshotForHistory(){
   const c = computeAll();
   return {
     id: `${Date.now()}`,
     date: match.date,
-    homeName: match.homeName,
-    visitorName: match.visitorName,
+    homeName: displayHomeName(),
+    visitorName: displayVisitorName(),
     points: {home: c.totals.points.home, visitor: c.totals.points.visitor},
     pins: {home: c.overall.totalPins.home, visitor: c.overall.totalPins.visitor},
     leader: c.status.leader,
@@ -540,21 +529,39 @@ function snapshotForHistory(){
   };
 }
 
-// EVENTS
+function renderAll(){
+  // Setup fields without forcing "Home" while typing
+  els.matchDate.value = match.date || todayISO();
+  els.homeName.value = match.homeName ?? "Home";
+  els.visitorName.value = match.visitorName ?? "Visitor";
+
+  // Build entry ONCE so keyboard stays open while typing
+  if (!els.entry.dataset.built){
+    renderEntry();
+    els.entry.dataset.built = "1";
+  } else {
+    updateEntryLabelsOnly();
+  }
+
+  renderSummary();
+  renderHistory();
+}
+
+// ---------- EVENTS ----------
 els.matchDate.addEventListener("change", () => {
   match.date = els.matchDate.value || todayISO();
-  saveCurrent(); renderAll();
+  saveCurrent();
+  renderSummary();
 });
+
 els.homeName.addEventListener("input", () => {
-  // Allow temporary empty while typing
-  match.homeName = els.homeName.value;
+  match.homeName = els.homeName.value; // allow blank while editing
   saveCurrent();
   updateEntryLabelsOnly();
   renderSummary();
 });
 els.homeName.addEventListener("blur", () => {
-  // On finish, enforce default if left blank
-  if (!els.homeName.value.trim()) {
+  if (!els.homeName.value.trim()){
     els.homeName.value = "Home";
     match.homeName = "Home";
     saveCurrent();
@@ -562,6 +569,7 @@ els.homeName.addEventListener("blur", () => {
     renderSummary();
   }
 });
+
 els.visitorName.addEventListener("input", () => {
   match.visitorName = els.visitorName.value;
   saveCurrent();
@@ -569,7 +577,7 @@ els.visitorName.addEventListener("input", () => {
   renderSummary();
 });
 els.visitorName.addEventListener("blur", () => {
-  if (!els.visitorName.value.trim()) {
+  if (!els.visitorName.value.trim()){
     els.visitorName.value = "Visitor";
     match.visitorName = "Visitor";
     saveCurrent();
@@ -577,6 +585,7 @@ els.visitorName.addEventListener("blur", () => {
     renderSummary();
   }
 });
+
 els.saveBtn.addEventListener("click", () => {
   addToHistory(snapshotForHistory());
   renderHistory();
